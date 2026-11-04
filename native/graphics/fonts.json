@@ -1,0 +1,17 @@
+{
+  "liberation": {
+    "package": "fonts-liberation_2.1.5-3build1_all.deb",
+    "url": "http://archive.ubuntu.com/ubuntu/pool/main/f/fonts-liberation/fonts-liberation_2.1.5-3build1_all.deb",
+    "sha256": "47f156bc945cfc69cf2f2a0c19b8c82b67a685738d3846673462de6a73266e1b",
+    "fonts": {
+      "LiberationSans-Regular.ttf": "075e71be4c58beda172ecb574a799308f04c3d054c6a5b7434954d3b0f1b28d8",
+      "LiberationMono-Regular.ttf": "d18235f1e874771f4eaec3ddd6ddb4db849d334bdc6930c5c2185d9344834e62",
+      "LiberationSerif-Regular.ttf": "350f4ffd773cae53560c63dca3d89a5070595614fde12f772bf43feb63d81064"
+    }
+  },
+  "dejavu": {
+    "archive": "dejavu-fonts-ttf-2.37.tar.bz2",
+    "url": "https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.tar.bz2",
+    "sha256": "fa9ca4d13871dd122f61258a80d01751d603b4d3ee14095d65453b4e846e17d7"
+  }
+}

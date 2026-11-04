@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -11,20 +12,23 @@ import urllib.request
 import zipfile
 
 
-DOWNLOADS = (
-    ("npp.zip", "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.7.6/npp.8.7.6.portable.x64.zip",
-     "8947bbdf3b87f466dea39ccab2f992177a132404b3907a669a4483484fc691cc", "npp"),
-    ("sqlite.zip", "https://www.sqlite.org/2025/sqlite-tools-win-x64-3500400.zip",
-     "8ce18347ea86a1ce65f33b533d2f144d8d1237140529fbf818574ca11fa13ad5", "."),
-    ("busybox", "https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox",
-     "6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba311348", None),
-)
+def load_downloads(manifest_path=None):
+    path = manifest_path or Path(__file__).resolve().parents[1] / "testdata/fixtures.json"
+    with open(path, "r", encoding="utf-8") as stream:
+        return json.load(stream)
 
 
-def fetch(output):
+def fetch(output, downloads=None):
+    if downloads is None:
+        downloads = load_downloads()
+    entries = downloads if isinstance(downloads, list) else [{"name": k, **v} for k, v in downloads.items()]
     cache = output / "downloads"
     cache.mkdir(parents=True, exist_ok=True)
-    for name, url, checksum, destination in DOWNLOADS:
+    for item in entries:
+        name = item["name"]
+        url = item["url"]
+        checksum = item["sha256"]
+        destination = item.get("destination")
         archive = cache / name
         if not archive.exists():
             temporary = archive.with_suffix(archive.suffix + ".part")
@@ -58,6 +62,7 @@ def fetch(output):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path, help="optional path to fixtures.json manifest")
     parser.add_argument("--cc", default="x86_64-w64-mingw32-gcc")
     parser.add_argument("--skip-downloads", action="store_true")
     parser.add_argument("--data-only", action="store_true")
@@ -74,7 +79,7 @@ def main():
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(bytes.fromhex(path.read_text()))
     if not args.skip_downloads:
-        fetch(output)
+        fetch(output, load_downloads(args.manifest))
     if args.data_only:
         return
     startup = output / "benchmark/startup.exe"

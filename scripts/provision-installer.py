@@ -15,9 +15,12 @@ import urllib.request
 from component_licenses import mark_patched_sources, preserve_notices
 
 
-# The ReactOS revision the common controls component is built from: one archive serves both.
-REVISION = "dacf2a6c47fa562799f9c8a41ab6d5c558556558"
-ARCHIVE_SHA256 = "5373bbbb60541cb2a49e0acb53360e1218d4f5d56c31f9187b341b9fc16daa69"
+def load_manifest(manifest_path=None):
+    path = manifest_path or Path(__file__).resolve().parent.parent / "native/nt/installer.json"
+    with open(path, "r", encoding="utf-8") as stream:
+        return json.load(stream)
+
+
 PREFIXES = ("sdk/include/", "sdk/lib/pseh/", "sdk/tools/hpp/", "sdk/tools/spec2def/", "sdk/lib/3rdparty/zlib/", "sdk/lib/3rdparty/libwine/",
             "sdk/lib/3rdparty/libxml2/", "sdk/lib/3rdparty/libwin-iconv/", "dll/3rdparty/libxslt/",
             "dll/win32/stdole2.tlb/",
@@ -36,9 +39,14 @@ COMPONENTS = ("cabinet.dll", "sxs.dll", "rpcrt4.dll", "msi.dll", "raven-storage.
 def main():
     parser = argparse.ArgumentParser(description="Build the pinned ReactOS Windows Installer components: msi, cabinet and sxs")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path, help="optional path to installer.json manifest")
     parser.add_argument("--archive", type=Path)
     parser.add_argument("--arch", choices=("x64", "x86"), default="x64", help="build the 64-bit components, or the 32-bit ones for PE32 programs")
     args = parser.parse_args()
+    manifest = load_manifest(args.manifest)
+    revision = manifest["revision"]
+    archive_sha256 = manifest.get("sha256")
+    url = manifest.get("url", f"https://codeload.github.com/reactos/reactos/tar.gz/{revision}")
     x86 = args.arch == "x86"
     triple = "i686-w64-mingw32" if x86 else "x86_64-w64-mingw32"
     spec_arch = "-a=i386" if x86 else "-a=x86_64"
@@ -55,14 +63,14 @@ def main():
         # Downloaded beside the archive and moved into place once it checks out, so an interrupted download is not kept.
         temporary = archive.with_suffix(archive.suffix + ".part")
         try:
-            urllib.request.urlretrieve(f"https://codeload.github.com/reactos/reactos/tar.gz/{REVISION}", temporary)
-            if hashlib.sha256(temporary.read_bytes()).hexdigest() != ARCHIVE_SHA256:
+            urllib.request.urlretrieve(url, temporary)
+            if archive_sha256 and hashlib.sha256(temporary.read_bytes()).hexdigest() != archive_sha256:
                 raise RuntimeError("downloaded ReactOS source archive checksum differs")
             temporary.replace(archive)
         finally:
             temporary.unlink(missing_ok=True)
-    if hashlib.sha256(archive.read_bytes()).hexdigest() != ARCHIVE_SHA256:
-        raise RuntimeError(f"ReactOS source archive checksum differs: {archive} is incomplete or not revision {REVISION}; delete it to download it again")
+    if archive_sha256 and hashlib.sha256(archive.read_bytes()).hexdigest() != archive_sha256:
+        raise RuntimeError(f"ReactOS source archive checksum differs: {archive} is incomplete or not revision {revision}; delete it to download it again")
     source = output / "source"
     shutil.rmtree(source, ignore_errors=True)
     with tarfile.open(archive) as upstream:
@@ -163,7 +171,7 @@ def main():
     (generated / "version.h").write_text(version)
     (generated / "reactos/version.h").write_text(version)
     buildno = (source / "sdk/include/reactos/buildno.h.cmake").read_text()
-    for key, value in (("KERNEL_VERSION_BUILD", "custom"), ("REVISION", REVISION[:7]), ("KERNEL_VERSION", "0.4.17-dev"), ("COMMIT_HASH", REVISION),
+    for key, value in (("KERNEL_VERSION_BUILD", "custom"), ("REVISION", revision[:7]), ("KERNEL_VERSION", "0.4.17-dev"), ("COMMIT_HASH", revision),
                        ("REACTOS_DLL_VERSION_MAJOR", "42"), ("DLL_VERSION_STR", "42.4.17-dev"), ("CMAKE_C_COMPILER_ID", "GNU"), ("CMAKE_C_COMPILER_VERSION", "13")):
         buildno = buildno.replace("@" + key + "@", value)
     (generated / "reactos/buildno.h").write_text(buildno)
@@ -587,7 +595,7 @@ def main():
     next_base[0] -= 0x400000 if x86 else 0x4000000
     run([triple + "-gcc", "-shared", "-nostdlib", f"-Wl,--entry,{'_DllMain@12' if x86 else 'DllMain'},--image-base,{next_base[0]:#x},--no-insert-timestamp", *link_extra,
          "-o", output / "advpack.dll", *advpack_objects, output / "advpack.def", "-lsetupapi", "-lole32", "-lshell32", "-lversion", "-ladvapi32", "-luser32", "-lkernel32", "-luuid", "-lgcc"])
-    result = dict(revision=REVISION, archive_sha256=ARCHIVE_SHA256, arch=args.arch, commands=records,
+    result = dict(revision=revision, archive_sha256=archive_sha256, arch=args.arch, commands=records,
                   license_notices=preserve_notices(source, output),
                   component_sha256={name: hashlib.sha256((output / name).read_bytes()).hexdigest() for name in COMPONENTS},
                   storage_exports=exported,

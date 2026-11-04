@@ -1,0 +1,20 @@
+[
+  {
+    "name": "npp.zip",
+    "url": "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.7.6/npp.8.7.6.portable.x64.zip",
+    "sha256": "8947bbdf3b87f466dea39ccab2f992177a132404b3907a669a4483484fc691cc",
+    "destination": "npp"
+  },
+  {
+    "name": "sqlite.zip",
+    "url": "https://www.sqlite.org/2025/sqlite-tools-win-x64-3500400.zip",
+    "sha256": "8ce18347ea86a1ce65f33b533d2f144d8d1237140529fbf818574ca11fa13ad5",
+    "destination": "."
+  },
+  {
+    "name": "busybox",
+    "url": "https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox",
+    "sha256": "6e123e7f3202a8c1e9b1f94d8941580a25135382b99e8d3e34fb858bba311348",
+    "destination": null
+  }
+]

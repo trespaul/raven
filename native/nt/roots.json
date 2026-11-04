@@ -1,0 +1,22 @@
+[
+  {
+    "name": "MicrosoftRootAuthority.crt",
+    "url": "http://www.microsoft.com/pki/certs/MicrosoftRootAuthority.crt",
+    "sha256": "f38406e540d7a9d90cb4a9479299640ffb6df9e224ecc7a01c0d9558d8dad77d"
+  },
+  {
+    "name": "MicrosoftRootCert.crt",
+    "url": "http://www.microsoft.com/pki/certs/MicrosoftRootCert.crt",
+    "sha256": "885de64c340e3ea70658f01e1145f957fcda27aabeea1ab9faa9fdb0102d4077"
+  },
+  {
+    "name": "MicRooCerAut_2010-06-23.crt",
+    "url": "http://www.microsoft.com/pki/certs/MicRooCerAut_2010-06-23.crt",
+    "sha256": "df545bf919a2439c36983b54cdfc903dfa4f37d3996d8d84b4c31eec6f3c163e"
+  },
+  {
+    "name": "MicRooCerAut2011_2011_03_22.crt",
+    "url": "http://www.microsoft.com/pki/certs/MicRooCerAut2011_2011_03_22.crt",
+    "sha256": "847df6a78497943f27fc72eb93f9a637320a02b561d0a91b09e87a7807ed7c61"
+  }
+]

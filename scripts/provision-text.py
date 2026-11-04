@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -10,15 +11,6 @@ import tarfile
 import urllib.request
 
 
-FONT_PACKAGE = "http://archive.ubuntu.com/ubuntu/pool/main/f/fonts-liberation/fonts-liberation_2.1.5-3build1_all.deb"
-FONT_PACKAGE_SHA256 = "47f156bc945cfc69cf2f2a0c19b8c82b67a685738d3846673462de6a73266e1b"
-FONTS = {
-    "LiberationSans-Regular.ttf": "075e71be4c58beda172ecb574a799308f04c3d054c6a5b7434954d3b0f1b28d8",
-    "LiberationMono-Regular.ttf": "d18235f1e874771f4eaec3ddd6ddb4db849d334bdc6930c5c2185d9344834e62",
-    "LiberationSerif-Regular.ttf": "350f4ffd773cae53560c63dca3d89a5070595614fde12f772bf43feb63d81064",
-}
-DEJAVU_RELEASE = "https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.tar.bz2"
-DEJAVU_RELEASE_SHA256 = "fa9ca4d13871dd122f61258a80d01751d603b4d3ee14095d65453b4e846e17d7"
 # Raven Sans stands in for the dialog face Tahoma. It is DejaVu Sans Condensed with every advance narrowed so the weighted
 # average width of Latin text matches Tahoma's, and with Tahoma's vertical metrics so a cell has the same height. The
 # targets are the published figures of @capsizecss/metrics 4.4.0 (Tahoma: ascent 2049, descent 423, average 917 regular
@@ -29,8 +21,20 @@ DIALOG_FACES = {
 }
 DIALOG_ASCENT = 2049
 DIALOG_DESCENT = 423
-SKIA_REPOSITORY = "https://skia.googlesource.com/skia.git"
-SKIA_COMMIT = "a21aae83d6e4e3da284100a30f0a5eafc443b60f"
+
+
+def load_skia_manifest(manifest_path=None):
+    path = manifest_path or Path(__file__).resolve().parent.parent / "native/graphics/skia.json"
+    with open(path, "r", encoding="utf-8") as stream:
+        return json.load(stream)
+
+
+def load_fonts_manifest(manifest_path=None):
+    path = manifest_path or Path(__file__).resolve().parent.parent / "native/graphics/fonts.json"
+    with open(path, "r", encoding="utf-8") as stream:
+        return json.load(stream)
+
+
 SKIA_ARGUMENTS = """is_official_build = true
 is_debug = false
 cc = "clang"
@@ -76,23 +80,28 @@ def ar_member(archive, prefix):
     raise RuntimeError(f"the font package has no {prefix} member")
 
 
-def provision_fonts(output):
+def provision_fonts(output, manifest=None):
     fonts = output / "fonts"
     fonts.mkdir(exist_ok=True)
-    package = output / "fonts-liberation.deb"
+    manifest = manifest or load_fonts_manifest()
+    liberation = manifest["liberation"]
+    package_url = liberation["url"]
+    package_sha256 = liberation["sha256"]
+    font_hashes = liberation.get("fonts", {})
+    package = output / Path(package_url).name
     if not package.exists():
         partial = package.with_suffix(".part")
-        urllib.request.urlretrieve(FONT_PACKAGE, partial)
+        urllib.request.urlretrieve(package_url, partial)
         partial.replace(package)
     data = package.read_bytes()
-    if hashlib.sha256(data).hexdigest() != FONT_PACKAGE_SHA256:
+    if hashlib.sha256(data).hexdigest() != package_sha256:
         raise RuntimeError("font package checksum differs; delete it to download it again")
     name, payload = ar_member(data, "data.tar")
     tarball = output / name
     tarball.write_bytes(payload)
     subprocess.run(["tar", "-xf", tarball, "-C", fonts, "--strip-components=6", "--wildcards", "*/Liberation*-Regular.ttf"], check=True)
     tarball.unlink()
-    for font, digest in FONTS.items():
+    for font, digest in font_hashes.items():
         if hashlib.sha256((fonts / font).read_bytes()).hexdigest() != digest:
             raise RuntimeError(f"font checksum differs: {font}")
     return fonts
@@ -134,13 +143,17 @@ def dialog_face(source, target, style, ratio):
     font.save(target)
 
 
-def provision_dialog_faces(output, fonts):
-    archive = output / "dejavu-fonts-ttf-2.37.tar.bz2"
+def provision_dialog_faces(output, fonts, manifest=None):
+    manifest = manifest or load_fonts_manifest()
+    dejavu = manifest["dejavu"]
+    dejavu_url = dejavu["url"]
+    dejavu_sha256 = dejavu["sha256"]
+    archive = output / Path(dejavu_url).name
     if not archive.exists():
         partial = archive.with_suffix(".part")
-        urllib.request.urlretrieve(DEJAVU_RELEASE, partial)
+        urllib.request.urlretrieve(dejavu_url, partial)
         partial.replace(archive)
-    if hashlib.sha256(archive.read_bytes()).hexdigest() != DEJAVU_RELEASE_SHA256:
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != dejavu_sha256:
         raise RuntimeError("DejaVu release checksum differs; delete it to download it again")
     source = output / "dejavu"
     source.mkdir(exist_ok=True)
@@ -155,13 +168,19 @@ def provision_dialog_faces(output, fonts):
     shutil.rmtree(source)
 
 
-def provision_skia(output, jobs):
-    source = output / "skia"
-    if not source.exists():
-        subprocess.run(["git", "init", "-q", source], check=True)
-        subprocess.run(["git", "-C", source, "fetch", "-q", "--depth=1", SKIA_REPOSITORY, SKIA_COMMIT], check=True)
-        subprocess.run(["git", "-C", source, "checkout", "-q", "FETCH_HEAD"], check=True)
-        subprocess.run([sys.executable, "tools/git-sync-deps"], cwd=source, check=True)
+def provision_skia(output, jobs, manifest=None, skia_source=None):
+    if skia_source:
+        source = skia_source.resolve()
+    else:
+        source = output / "skia"
+        if not source.exists():
+            manifest = manifest or load_skia_manifest()
+            repository = manifest.get("url") or manifest.get("repository", "https://skia.googlesource.com/skia.git")
+            commit = manifest.get("rev") or manifest.get("commit", "a21aae83d6e4e3da284100a30f0a5eafc443b60f")
+            subprocess.run(["git", "init", "-q", source], check=True)
+            subprocess.run(["git", "-C", source, "fetch", "-q", "--depth=1", repository, commit], check=True)
+            subprocess.run(["git", "-C", source, "checkout", "-q", "FETCH_HEAD"], check=True)
+            subprocess.run([sys.executable, "tools/git-sync-deps"], cwd=source, check=True)
     subprocess.run([sys.executable, "bin/fetch-gn"], cwd=source, check=True)
     subprocess.run([sys.executable, "bin/fetch-ninja"], cwd=source, check=True)
     build = output / "cpu-fonts"
@@ -175,21 +194,41 @@ def provision_skia(output, jobs):
 def main():
     parser = argparse.ArgumentParser(description="Provide the pinned Liberation fonts, the Raven Sans dialog faces and the CPU build of Skia that text in guest windows needs")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--manifest", "--skia-manifest", dest="manifest", type=Path, help="optional path to skia.json manifest")
+    parser.add_argument("--fonts-manifest", type=Path, help="optional path to fonts.json manifest")
+    parser.add_argument("--skia-source", type=Path, help="an existing checkout/directory of the Skia source")
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--fonts-only", action="store_true", help="only the fonts, as Skia takes a long time to build")
+    parser.add_argument("--skia-only", action="store_true", help="only the Skia library and source, skipping fonts")
     args = parser.parse_args()
+    if args.fonts_only and args.skia_only:
+        raise RuntimeError("--fonts-only and --skia-only cannot be used together")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    for tool in ("tar", "git", "clang", "clang++"):
+    tools = []
+    if not args.skia_only:
+        tools.append("tar")
+    if not args.fonts_only:
+        tools.extend(["clang", "clang++"])
+        if not args.skia_source:
+            tools.append("git")
+    for tool in tools:
         if not shutil.which(tool):
             raise RuntimeError(f"required tool is missing: {tool}")
-    fonts = provision_fonts(output)
-    provision_dialog_faces(output, fonts)
-    if args.fonts_only:
-        print(f"configure Raven with -DRAVEN_FONT_DIRECTORY={fonts}")
-        return
-    source, library = provision_skia(output, args.jobs)
-    print(f"configure Raven with -DRAVEN_SKIA_SOURCE={source} -DRAVEN_SKIA_LIBRARY={library} -DRAVEN_FONT_DIRECTORY={fonts}")
+    fonts = None
+    if not args.skia_only:
+        fonts_manifest = load_fonts_manifest(args.fonts_manifest)
+        fonts = provision_fonts(output, fonts_manifest)
+        provision_dialog_faces(output, fonts, fonts_manifest)
+        if args.fonts_only:
+            print(f"configure Raven with -DRAVEN_FONT_DIRECTORY={fonts}")
+            return
+    manifest = load_skia_manifest(args.manifest) if not args.skia_source else None
+    source, library = provision_skia(output, args.jobs, manifest=manifest, skia_source=args.skia_source)
+    if args.skia_only:
+        print(f"configure Raven with -DRAVEN_SKIA_SOURCE={source} -DRAVEN_SKIA_LIBRARY={library}")
+    else:
+        print(f"configure Raven with -DRAVEN_SKIA_SOURCE={source} -DRAVEN_SKIA_LIBRARY={library} -DRAVEN_FONT_DIRECTORY={fonts}")
 
 
 if __name__ == "__main__":
