@@ -180,6 +180,28 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
         target_sources(raven_cpu PRIVATE nt/wininet_api.cpp)
         target_link_libraries(raven_cpu PUBLIC OpenSSL::SSL)
     endif()
+    # The code signing roots Windows trusts (scripts/provision-roots.py), beside the runtime in roots/: signatures of installers and
+    # their packages are checked against them.
+    set(RAVEN_ROOT_CERTIFICATE_DIRECTORY "" CACHE PATH "Directory holding the root certificates downloaded by scripts/provision-roots.py")
+    if(RAVEN_ROOT_CERTIFICATE_DIRECTORY)
+        file(GLOB root_certificates ${RAVEN_ROOT_CERTIFICATE_DIRECTORY}/*.crt)
+        set(root_copies)
+        foreach(certificate ${root_certificates})
+            get_filename_component(certificate_name ${certificate} NAME)
+            add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/roots/${certificate_name}
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/roots
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${certificate} ${CMAKE_CURRENT_BINARY_DIR}/roots/${certificate_name}
+                DEPENDS ${certificate} VERBATIM)
+            list(APPEND root_copies ${CMAKE_CURRENT_BINARY_DIR}/roots/${certificate_name})
+        endforeach()
+        add_custom_target(root_certificates ALL DEPENDS ${root_copies})
+        add_dependencies(raven root_certificates)
+        install(DIRECTORY ${RAVEN_ROOT_CERTIFICATE_DIRECTORY}/
+            DESTINATION ${CMAKE_INSTALL_BINDIR}/roots
+        )
+    else()
+        message(WARNING "RAVEN_ROOT_CERTIFICATE_DIRECTORY is not set: installers that check the signatures of Microsoft packages fail with 0x800b010a. Run scripts/provision-roots.py and configure again with its output directory.")
+    endif()
     # Font files are read and rasterized for the DirectWrite component with FreeType when it is there.
     if(FREETYPE_FOUND)
         target_link_libraries(raven_cpu PUBLIC Freetype::Freetype)
@@ -1481,24 +1503,6 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
         add_custom_target(geometry_negative_fixture ALL DEPENDS ${GEOMETRY_NEGATIVE})
         add_test(NAME native_geometry_boundary COMMAND raven --run-process --execution=native ${GEOMETRY_NEGATIVE})
         set_tests_properties(native_geometry_boundary PROPERTIES TIMEOUT 15 PASS_REGULAR_EXPRESSION "Native entry returned 0 ")
-        # The code signing roots Windows trusts (scripts/provision-roots.py), beside the runtime in roots/: signatures of installers and
-        # their packages are checked against them.
-        set(RAVEN_ROOT_CERTIFICATE_DIRECTORY "" CACHE PATH "Directory holding the root certificates downloaded by scripts/provision-roots.py")
-        if(RAVEN_ROOT_CERTIFICATE_DIRECTORY)
-            file(GLOB root_certificates ${RAVEN_ROOT_CERTIFICATE_DIRECTORY}/*.crt)
-            set(root_copies)
-            foreach(certificate ${root_certificates})
-                get_filename_component(certificate_name ${certificate} NAME)
-                add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/roots/${certificate_name}
-                    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/roots
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${certificate} ${CMAKE_CURRENT_BINARY_DIR}/roots/${certificate_name}
-                    DEPENDS ${certificate} VERBATIM)
-                list(APPEND root_copies ${CMAKE_CURRENT_BINARY_DIR}/roots/${certificate_name})
-            endforeach()
-            add_custom_target(root_certificates ALL DEPENDS ${root_copies})
-        else()
-            message(WARNING "RAVEN_ROOT_CERTIFICATE_DIRECTORY is not set: installers that check the signatures of Microsoft packages fail with 0x800b010a. Run scripts/provision-roots.py and configure again with its output directory.")
-        endif()
         # The Windows Installer components (scripts/provision-installer.py): msi, cabinet, sxs and structured storage, for each program width.
         set(RAVEN_INSTALLER_COMPONENT_DIR "" CACHE PATH "Directory holding the installer components built by scripts/provision-installer.py")
         set(RAVEN_INSTALLER32_COMPONENT_DIR "" CACHE PATH "Directory holding the 32-bit installer components built by scripts/provision-installer.py --arch x86")
