@@ -181,13 +181,23 @@ def provision_skia(output, jobs, manifest=None, skia_source=None):
             subprocess.run(["git", "-C", source, "fetch", "-q", "--depth=1", repository, commit], check=True)
             subprocess.run(["git", "-C", source, "checkout", "-q", "FETCH_HEAD"], check=True)
             subprocess.run([sys.executable, "tools/git-sync-deps"], cwd=source, check=True)
-    subprocess.run([sys.executable, "bin/fetch-gn"], cwd=source, check=True)
-    subprocess.run([sys.executable, "bin/fetch-ninja"], cwd=source, check=True)
+    gn_bin = shutil.which("gn")
+    if not gn_bin:
+        gn_candidate = source / "bin/gn"
+        if not gn_candidate.exists():
+            subprocess.run([sys.executable, "bin/fetch-gn"], cwd=source, check=True)
+        gn_bin = str(gn_candidate)
+    ninja_bin = shutil.which("ninja")
+    if not ninja_bin:
+        ninja_candidate = source / "third_party/ninja/ninja"
+        if not ninja_candidate.exists():
+            subprocess.run([sys.executable, "bin/fetch-ninja"], cwd=source, check=True)
+        ninja_bin = str(ninja_candidate)
     build = output / "cpu-fonts"
     build.mkdir(exist_ok=True)
     (build / "args.gn").write_text(SKIA_ARGUMENTS)
-    subprocess.run([source / "bin/gn", "gen", build], cwd=source, check=True)
-    subprocess.run([source / "third_party/ninja/ninja", "-C", build, f"-j{jobs}", "skia"], check=True)
+    subprocess.run([gn_bin, "gen", build], cwd=source, check=True)
+    subprocess.run([ninja_bin, "-C", build, f"-j{jobs}", "skia"], check=True)
     return source, build / "libskia.a"
 
 
