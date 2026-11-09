@@ -168,7 +168,35 @@ def provision_dialog_faces(output, fonts, manifest=None):
     shutil.rmtree(source)
 
 
-def provision_skia(output, jobs, manifest=None, skia_source=None):
+def find_freetype_include():
+    pkg_config = shutil.which("pkg-config")
+    if pkg_config:
+        try:
+            res = subprocess.run(
+                [pkg_config, "--cflags-only-I", "freetype2"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if res.returncode == 0:
+                for token in res.stdout.split():
+                    if token.startswith("-I"):
+                        inc_path = Path(token[2:].strip())
+                        if (inc_path / "ft2build.h").exists():
+                            return inc_path
+                        if (inc_path / "freetype2/ft2build.h").exists():
+                            return inc_path / "freetype2"
+                        if inc_path.exists():
+                            return inc_path
+        except Exception:
+            pass
+    for candidate in [Path("/usr/include/freetype2"), Path("/usr/local/include/freetype2")]:
+        if (candidate / "ft2build.h").exists():
+            return candidate
+    return None
+
+
+def provision_skia(output, jobs, manifest=None, skia_source=None, freetype_include=None):
     if skia_source:
         source = skia_source.resolve()
     else:
@@ -195,7 +223,12 @@ def provision_skia(output, jobs, manifest=None, skia_source=None):
         ninja_bin = str(ninja_candidate)
     build = output / "cpu-fonts"
     build.mkdir(exist_ok=True)
-    (build / "args.gn").write_text(SKIA_ARGUMENTS)
+    args_text = SKIA_ARGUMENTS
+    if not freetype_include:
+        freetype_include = find_freetype_include()
+    if freetype_include:
+        args_text += f'\nskia_system_freetype2_include_path = "{freetype_include}"\n'
+    (build / "args.gn").write_text(args_text)
     subprocess.run([gn_bin, "gen", build], cwd=source, check=True)
     subprocess.run([ninja_bin, "-C", build, f"-j{jobs}", "skia"], check=True)
     return source, build / "libskia.a"
@@ -210,6 +243,7 @@ def main():
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--fonts-only", action="store_true", help="only the fonts, as Skia takes a long time to build")
     parser.add_argument("--skia-only", action="store_true", help="only the Skia library and source, skipping fonts")
+    parser.add_argument("--freetype-include", type=Path, help="directory containing ft2build.h (defaults to pkg-config freetype2)")
     args = parser.parse_args()
     if args.fonts_only and args.skia_only:
         raise RuntimeError("--fonts-only and --skia-only cannot be used together")
@@ -234,7 +268,14 @@ def main():
             print(f"configure Raven with -DRAVEN_FONT_DIRECTORY={fonts}")
             return
     manifest = load_skia_manifest(args.manifest) if not args.skia_source else None
-    source, library = provision_skia(output, args.jobs, manifest=manifest, skia_source=args.skia_source)
+    freetype_inc = args.freetype_include.resolve() if args.freetype_include else None
+    source, library = provision_skia(
+        output,
+        args.jobs,
+        manifest=manifest,
+        skia_source=args.skia_source,
+        freetype_include=freetype_inc,
+    )
     if args.skia_only:
         print(f"configure Raven with -DRAVEN_SKIA_SOURCE={source} -DRAVEN_SKIA_LIBRARY={library}")
     else:
